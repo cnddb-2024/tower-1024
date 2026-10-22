@@ -1,9 +1,19 @@
 // 同域数据接口：部署后页面访问 /api/progress，刷新即可拿到论坛最新楼层
-// 由 Cloudflare Pages Functions 自动识别 functions/api/progress.js 生成
 // 原理：服务器代抓论坛数据（服务器之间没有跨域限制），再以同域身份返回给页面
+// 缓存：实例内存缓存 90 秒，不依赖任何平台专有 API
+// 部署：functions/api/progress.js 给 Cloudflare Pages，edge-functions/api/progress.js 给腾讯云 EdgeOne Pages，两份内容一致
 const TOPIC = '325833';
 const BASE = 'https://forum.trae.cn';
-const CACHE_S = 90;
+const CACHE_MS = 90 * 1000;
+
+let memo = { at: 0, body: '' };
+
+function json(body, status) {
+  return new Response(body, {
+    status: status || 200,
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
 
 function clean(html) {
   return (html || '')
@@ -54,27 +64,18 @@ async function buildSnapshot() {
   };
 }
 
-export async function onRequest(context) {
-  const url = new URL(context.request.url);
-  const key = new Request(url.origin + '/api/progress', { method: 'GET' });
-  const cache = caches.default;
-  const hit = await cache.match(key);
-  let body;
-  if (hit) {
-    body = await hit.text();
-  } else {
-    try {
-      const snap = await buildSnapshot();
-      body = JSON.stringify(snap);
-      context.waitUntil(cache.put(key, new Response(body, { headers: { 'Cache-Control': 'public, max-age=' + CACHE_S } })));
-    } catch (e) {
-      return new Response(JSON.stringify({ error: String((e && e.message) || e) }), {
-        status: 502,
-        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-      });
-    }
+async function handle() {
+  const now = Date.now();
+  if (memo.body && now - memo.at < CACHE_MS) return json(memo.body);
+  try {
+    const snap = await buildSnapshot();
+    memo = { at: now, body: JSON.stringify(snap) };
+    return json(memo.body);
+  } catch (e) {
+    if (memo.body) return json(memo.body);
+    return json(JSON.stringify({ error: String((e && e.message) || e) }), 502);
   }
-  return new Response(body, {
-    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
-  });
 }
+
+export { handle as onRequest };
+export default handle;

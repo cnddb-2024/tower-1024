@@ -1,0 +1,12 @@
+{
+  "name": "tower-1024",
+  "compatibility_date": "2026-10-19",
+  "main": "_worker.js",
+  "assets": {
+    "directory": ".",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
